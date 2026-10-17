@@ -14,10 +14,7 @@ from torch import nn
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
 from learning.config import Experiment
-from learning.arpe_actor_critic import (
-    ARPEActorCritic,
-    select_top2_low_pressure,
-)
+from learning.arpe_actor_critic import ARPEActorCritic
 from train_arpe import register_custom_components, validate_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,14 +23,6 @@ FORMAL = ROOT / "configs" / "train_arpe.yaml"
 
 def _load(path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _routing(batch_size):
-    pressure = torch.tensor([[0.0, 5.0, 1.0, -99.0, 0.0]]).repeat(batch_size, 1)
-    legal = torch.ones(batch_size, 5)
-    legal[:, 0] = 0
-    ranks = torch.arange(5).repeat(batch_size, 2, 1).float()
-    return pressure, legal, ranks
 
 
 @pytest.fixture
@@ -132,12 +121,10 @@ def test_fusion_input_is_trace32_h512_z5_and_detaches_frozen_epom():
 def test_residual_keeps_raw_magnitude_and_mean(correction_model):
     raw = torch.tensor([[20.62, -30.0, 0.0, 2.0, -1.0], [4.0] * 5], requires_grad=True)
     base = torch.zeros_like(raw)
-    pressure, legal, ranks = _routing(2)
     final = correction_model._apply_configured_correction_rule(
-        base, raw, pressure, legal, ranks
+        base, raw
     )
-    route = select_top2_low_pressure(base, pressure, legal, ranks)
-    assert torch.equal(final, raw + route)
+    assert torch.equal(final, raw)
     final.sum().backward()
     assert torch.equal(raw.grad, torch.ones_like(raw))
 
@@ -150,14 +137,11 @@ def test_training_keeps_actor_gradient_for_all_rows_and_actions(correction_model
     raw = torch.tensor(
         [[0.4, -0.2, 0.1, 0.3, -0.1], [0.7, -0.4, 0.2, 0.1, -0.3]], requires_grad=True
     )
-    pressure, legal, ranks = _routing(2)
-    legal[0, 4] = 0
     final = correction_model._apply_configured_correction_rule(
-        base, raw, pressure, legal, ranks
+        base, raw
     )
-    route = select_top2_low_pressure(base, pressure, legal, ranks)
     reference_raw = raw.detach().clone().requires_grad_()
-    expected = base.detach() + route + reference_raw
+    expected = base.detach() + reference_raw
     torch.testing.assert_close(final, expected, rtol=0, atol=0)
     targets = torch.tensor([1, 2])
     F.cross_entropy(expected, targets, reduction="sum").backward()
@@ -167,50 +151,22 @@ def test_training_keeps_actor_gradient_for_all_rows_and_actions(correction_model
     assert base.grad is None
 
 
-def test_direct_rewards_low_pressure_of_top_two_legal_moves_only():
-    base = torch.tensor([[0.0, 0.4, 0.3, 0.2, 0.1]]).repeat(3, 1)
-    pressure, legal, ranks = _routing(3)
-    legal[1, 1] = 0
-    legal[2, 2:] = 0
-    actual = select_top2_low_pressure(base, pressure, legal, ranks)
-    expected = torch.tensor([[0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 0]])
-    torch.testing.assert_close(actual, expected.to(actual.dtype))
-
-
-def test_stored_tie_ranks_make_repeated_ppo_forward_identical():
-    base = torch.zeros(3, 5)
-    pressure = torch.ones_like(base)
-    _, legal, ranks = _routing(3)
-    torch.manual_seed(10)
-    first = select_top2_low_pressure(base, pressure, legal, ranks)
-    torch.manual_seed(100)
-    second = select_top2_low_pressure(base, pressure, legal, ranks)
-    torch.testing.assert_close(first, second)
-    torch.testing.assert_close(first.sum(dim=-1), torch.ones(3))
-    torch.testing.assert_close(first[:, 0], torch.zeros(3))
-
-
-def test_zero_output_keeps_direct_bonus_at_all_entropies(correction_model):
+def test_zero_output_preserves_base_logits_at_all_entropies(correction_model):
     base = torch.tensor([[0.0, 0.4, 0.3, 0.2, 0.1], [20.0, 0.4, 0.3, 0.2, 0.1]])
-    pressure, legal, ranks = _routing(2)
     final = correction_model._apply_configured_correction_rule(
-        base, torch.zeros_like(base), pressure, legal, ranks
+        base, torch.zeros_like(base)
     )
-    expected = base.clone()
-    expected[:, 2] += 1.0
-    torch.testing.assert_close(final, expected)
+    torch.testing.assert_close(final, base, rtol=0, atol=0)
 
 
-def test_training_formula_is_direct_plus_raw_correction(correction_model):
+def test_training_formula_is_base_plus_raw_correction(correction_model):
     base = torch.tensor([[0.0, 0.4, 0.3, 0.2, 0.1], [20.0, 0.4, 0.3, 0.2, 0.1]])
     raw = torch.tensor([[2.0, -1.0, 0.0, 4.0, -3.0], [1.0, 2.0, 3.0, 4.0, 5.0]])
-    pressure, legal, ranks = _routing(2)
     final = correction_model._apply_configured_correction_rule(
-        base, raw, pressure, legal, ranks
+        base, raw
     )
     expected = base + raw
-    expected[:, 2] += 1.0
-    torch.testing.assert_close(final, expected)
+    torch.testing.assert_close(final, expected, rtol=0, atol=0)
 
 
 def test_actor_and_critic_have_independent_trace_gradients_and_frozen_base(full_model):
@@ -225,9 +181,8 @@ def test_actor_and_critic_have_independent_trace_gradients_and_frozen_base(full_
     actor_feature = model.actor_trace_encoder(actor_tau)
     fusion = model.compose_paper_entropy_fusion_input(actor_feature, hidden, logits)
     raw = model.trace_multiplier_head(model.trace_fusion_head(fusion))
-    pressure, legal, ranks = _routing(4)
     adjusted = model._apply_configured_correction_rule(
-        logits.detach(), raw, pressure, legal, ranks
+        logits.detach(), raw
     )
     values = model._critic_values(
         hidden, model.critic_trace_encoder(critic_tau), logits
@@ -254,7 +209,7 @@ def test_actor_and_critic_have_independent_trace_gradients_and_frozen_base(full_
     )
 
 
-def test_full_forward_retains_direct_and_zero_initial_residual(full_model):
+def test_full_forward_zero_initial_residual_preserves_base_logits(full_model):
     model, batch, cfg = full_model
     nn.init.zeros_(model.trace_multiplier_head[-1].weight)
     nn.init.zeros_(model.trace_multiplier_head[-1].bias)
@@ -276,14 +231,7 @@ def test_full_forward_retains_direct_and_zero_initial_residual(full_model):
         assert all(not parameter.requires_grad for parameter in module.parameters())
         for key, value in module.state_dict().items():
             torch.testing.assert_close(value, expected[key], rtol=0, atol=0)
-    pressure = model.centered_trace_candidates(batch["tau"])
-    legal = model.centered_trace_candidates(batch["tau_free_mask"]) > 0.5
-    route = select_top2_low_pressure(
-        captured["base"], pressure, legal, batch["bonus_tie_ranks"]
-    )
-    torch.testing.assert_close(outputs["action_logits"], captured["base"] + route)
-    assert (route >= 0).all()
-    assert (route.sum(dim=-1) <= 1).all()
+    torch.testing.assert_close(outputs["action_logits"], captured["base"], rtol=0, atol=0)
 
 
 def test_actor_and_critic_have_independent_parameters(full_model):

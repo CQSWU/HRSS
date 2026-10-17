@@ -14,7 +14,6 @@ from learning.config import Experiment
 from learning.arpe_actor_critic import (
     ARPEActorCritic,
     InferenceCorrection,
-    select_top2_low_pressure,
 )
 from planning.branch import AORePlanStep
 
@@ -35,29 +34,25 @@ def test_inference_gate_is_strict_and_uses_raw_correction():
     assert torch.equal(raw.grad[2:], torch.ones_like(raw[2:]))
 
 
-def test_native_training_keeps_direct_and_all_action_correction():
+def test_native_training_uses_only_base_and_all_action_correction():
     logits = torch.tensor([[100.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]])
     raw = torch.tensor([[1.0, -1.0, 2.0, -2.0, 0.0]]).repeat(2, 1)
-    pressure = torch.tensor([[0.0, 4.0, 1.0, 2.0, 3.0]]).repeat(2, 1)
-    legal = torch.tensor([[0.0, 1.0, 1.0, 1.0, 1.0]]).repeat(2, 1)
-    ranks = torch.arange(5).float().repeat(2, 2, 1)
     model = SimpleNamespace(
         training=False,
         _base_entropy=ARPEActorCritic._base_entropy,
     )
     apply = ARPEActorCritic._apply_configured_correction_rule
-    native = apply(model, logits, raw, pressure, legal, ranks)
-    route = select_top2_low_pressure(logits, pressure, legal, ranks)
+    native = apply(model, logits, raw)
     torch.testing.assert_close(
-        native, logits + route + raw, rtol=0, atol=0
+        native, logits + raw, rtol=0, atol=0
     )
     model.inference_correction = InferenceCorrection()
-    final = apply(model, logits, raw, pressure, legal, ranks)
+    final = apply(model, logits, raw)
     assert torch.equal(final[0], logits[0])
     assert torch.equal(final[1], logits[1] + raw[1])
     model.training = True
     with pytest.raises(RuntimeError, match="training"):
-        apply(model, logits, raw, pressure, legal, ranks)
+        apply(model, logits, raw)
 
 
 def _observations(position=(0, 0), target=(0, 5)):

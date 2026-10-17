@@ -26,33 +26,6 @@ class InferenceCorrection:
         return base_logits + learned_delta
 
 
-def select_top2_low_pressure(logits, pressure, legal, tie_ranks):
-    if logits.ndim != 2 or logits.shape[-1] != 5:
-        raise ValueError("logits must have shape [B,5]")
-    if pressure.shape != logits.shape or legal.shape != logits.shape:
-        raise ValueError("pressure and legal must match logits [B,5]")
-    if tie_ranks.shape != (logits.shape[0], 2, 5):
-        raise ValueError("bonus_tie_ranks must have shape [B,2,5]")
-    with torch.no_grad():
-        z, p, ranks = logits.detach(), pressure.detach(), tie_ranks.detach()
-        moves = (legal.detach() > 0.5).clone()
-        moves[:, 0] = False
-        scores = torch.where(moves, z, -torch.inf)
-        ties = moves & (scores == scores.max(dim=-1, keepdim=True).values)
-        first = torch.where(ties, ranks[:, 0], -1.0).argmax(dim=-1, keepdim=True)
-        remaining = moves.scatter(1, first, False)
-        scores = torch.where(remaining, z, -torch.inf)
-        ties = remaining & (scores == scores.max(dim=-1, keepdim=True).values)
-        second = torch.where(ties, ranks[:, 0], -1.0).argmax(dim=-1, keepdim=True)
-        top2 = torch.zeros_like(moves).scatter(1, first, True).scatter(1, second, True)
-        top2 = top2 & moves
-        pressures = torch.where(top2, p, torch.inf)
-        ties = top2 & (pressures == pressures.min(dim=-1, keepdim=True).values)
-        winner = torch.where(ties, ranks[:, 1], -1.0).argmax(dim=-1, keepdim=True)
-        route = torch.zeros_like(z).scatter(1, winner, 1.0)
-        return route * (moves.sum(dim=-1, keepdim=True) >= 2).to(z.dtype)
-
-
 class TraceEncoder(nn.Module):
     OUTPUT_SIZE = 32
     TRACE_SIZE = 11
@@ -366,9 +339,6 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
         self,
         base_logits,
         raw_correction,
-        pressure,
-        legal,
-        tie_ranks,
     ):
         inference = getattr(self, "inference_correction", None)
         if inference is not None:
@@ -383,17 +353,15 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
                 self._base_entropy(base_logits),
             )
         base_logits = base_logits.detach()
-        route = select_top2_low_pressure(base_logits, pressure, legal, tie_ranks)
-        return base_logits + route + raw_correction
+        return base_logits + raw_correction
 
     def forward_tail(self, core_output, values_only: bool, sample_actions: bool):
         if isinstance(core_output, PackedSequence):
             raise TypeError("Sample Factory must unpack PackedSequence before tail.")
-        ranks = core_output[:, -10:].reshape(-1, 2, 5)
         (
             hidden,
-            centred_trace,
-            legal,
+            _centred_trace,
+            _legal,
             actor_trace,
             critic_trace,
         ) = self._split_core(core_output[:, :-10])
@@ -414,9 +382,6 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
         final_logits = self._apply_configured_correction_rule(
             base_logits,
             raw_correction,
-            centred_trace,
-            legal,
-            ranks,
         )
         self.last_action_distribution = get_action_distribution(
             self.action_space, final_logits
