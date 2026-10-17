@@ -15,13 +15,13 @@ from agents.common import AlgoBase
 from planning.branch import AORePlanBranch
 
 
-class SRSLMConfig(AlgoBase, extra=Extra.forbid):
-    name: Literal["SRSLM"] = "SRSLM"
+class HRSSConfig(AlgoBase, extra=Extra.forbid):
+    name: Literal["HRSS"] = "HRSS"
     switcher: SwitcherConfig = SwitcherConfig()
     max_planning_steps: int = Field(10_000, gt=0)
 
 
-class SRSLM:
+class HRSS:
     def set_grid_config(self, grid_config):
         self.controller.set_grid_config(grid_config)
 
@@ -33,7 +33,7 @@ class SRSLM:
 
     def __init__(
         self,
-        cfg: SRSLMConfig,
+        cfg: HRSSConfig,
         *,
         candidate: ARPEWeights | None = None,
         candidate_factory: Callable = ARPE,
@@ -91,6 +91,6 @@ class SRSLM:
 
 
 __all__ = [
-    "SRSLM",
-    "SRSLMConfig",
+    "HRSS",
+    "HRSSConfig",
 ]

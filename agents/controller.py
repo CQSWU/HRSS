@@ -118,7 +118,7 @@ class SwitcherController:
         collision_system = getattr(grid_config, "collision_system", None)
         if collision_system not in SUPPORTED_COLLISION_SYSTEMS:
             raise ValueError(
-                "SRSLM requires a supported collision system; received "
+                "HRSS requires a supported collision system; received "
                 f"collision_system={collision_system!r}, supported "
                 f"{SUPPORTED_COLLISION_SYSTEMS}."
             )

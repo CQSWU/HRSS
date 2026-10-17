@@ -1,9 +1,9 @@
-# SRSLM
+# HRSS
 
 **Switch and Reweight with Shared Trace for Lifelong Partially Observable
 Multi-Agent Pathfinding.**
 
-SRSLM combines AORePlan and ARPE with a learned Switcher. When AORePlan
+HRSS combines AORePlan and ARPE with a learned Switcher. When AORePlan
 returns wait, ARPE is used directly; otherwise, the Switcher selects a branch.
 
 | RePlan | AORePlan |
@@ -15,8 +15,8 @@ returns wait, ARPE is used directly; otherwise, the Switcher selects a branch.
 Linux, Python 3.10 or 3.11, and a C++ compiler:
 
 ```bash
-git clone https://github.com/CQSWU/SRSLM.git
-cd SRSLM
+git clone https://github.com/CQSWU/HRSS.git
+cd HRSS
 uv sync
 ```
 
@@ -26,12 +26,12 @@ uv sync
 uv run python evaluate.py --algorithms AORePlan
 ```
 
-Download the [model weights](https://github.com/CQSWU/SRSLM/releases/tag/weights-v1)
+Download the [model weights](https://github.com/CQSWU/HRSS/releases/tag/weights-v1)
 and extract them into `weights/`. ARPE needs `EPOM-L` and `ARPE-Final-1B`;
-SRSLM also needs `SRSLM-Switcher-Final-1B`. Experiment data is not included.
+HRSS also needs `HRSS-Switcher-Final-1B`. Experiment data is not included.
 
 ```bash
-uv run python evaluate.py --algorithms SRSLM
+uv run python evaluate.py --algorithms HRSS
 ```
 
 ## Train

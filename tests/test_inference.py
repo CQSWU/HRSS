@@ -121,15 +121,15 @@ def test_wait_only_controller_leaves_reverse_actions_to_switcher(
 
 def test_training_and_deployment_share_wait_only_controller():
     import inspect
-    from agents.srslm import SRSLM, SRSLMConfig
+    from agents.hrss import HRSS, HRSSConfig
     from pomapf_env.switcher import SwitcherEnv
 
     assert SwitcherEnv.controller_class is SwitcherController
     assert (
-        inspect.signature(SRSLM).parameters["controller_factory"].default
+        inspect.signature(HRSS).parameters["controller_factory"].default
         is SwitcherController
     )
-    assert "final_reverse_guard_enabled" not in SRSLMConfig.__fields__
+    assert "final_reverse_guard_enabled" not in HRSSConfig.__fields__
 
 
 def test_final_manifest_only_selects_weights():
@@ -149,13 +149,13 @@ def test_final_manifest_only_selects_weights():
 def test_final_weight_loading_and_small_cpu_forward_when_available():
     mapping = json.loads((ROOT / "configs/arpe.json").read_text())
     artifact = ARPEWeights.from_mapping(mapping, ROOT)
-    switcher_dir = ROOT / "weights/SRSLM-Switcher-Final-1B"
+    switcher_dir = ROOT / "weights/HRSS-Switcher-Final-1B"
     if (
         not artifact.checkpoint_path.is_file()
         or not (switcher_dir / "config.json").is_file()
     ):
         pytest.skip("Final model weights are distributed separately")
-    from agents.srslm import SRSLM, SRSLMConfig
+    from agents.hrss import HRSS, HRSSConfig
     from agents.switcher import SwitcherConfig
     from agents.controller import build_switcher_state
     from pomapf_env.tie_breaking import TIE_KEY
@@ -164,8 +164,8 @@ def test_final_weight_loading_and_small_cpu_forward_when_available():
 
     source_config = artifact.weights_path / "config.json"
     source_bytes = source_config.read_bytes()
-    policy = SRSLM(
-        SRSLMConfig(
+    policy = HRSS(
+        HRSSConfig(
             device="cpu",
             switcher=SwitcherConfig(path_to_weights=str(switcher_dir), device="cpu"),
         ),

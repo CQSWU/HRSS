@@ -390,8 +390,8 @@ class _ActualUpstreamLossLearner:
 
 def _unwrap_sample_factory_loss():
     function = Learner._calculate_losses
-    while hasattr(function, "_srslm_original_calculate_losses"):
-        function = function._srslm_original_calculate_losses
+    while hasattr(function, "_hrss_original_calculate_losses"):
+        function = function._hrss_original_calculate_losses
     return function
 
 
@@ -532,7 +532,7 @@ from sample_factory.algo.learning.learner import Learner
 
 assert getattr(
     Learner._calculate_losses,
-    '_srslm_switcher_actor_mask_patch',
+    '_hrss_switcher_actor_mask_patch',
     False,
 )
 """
@@ -550,7 +550,7 @@ def test_component_registration_repairs_a_missing_patch(monkeypatch):
     from sample_factory.algo.learning.learner import Learner
 
     patched = Learner._calculate_losses
-    original = patched._srslm_original_calculate_losses
+    original = patched._hrss_original_calculate_losses
     monkeypatch.setattr(Learner, "_calculate_losses", original)
 
     monkeypatch.setattr(train_arpe, "_CUSTOM_COMPONENTS_REGISTERED", True)
@@ -559,6 +559,6 @@ def test_component_registration_repairs_a_missing_patch(monkeypatch):
 
     assert getattr(
         Learner._calculate_losses,
-        "_srslm_switcher_actor_mask_patch",
+        "_hrss_switcher_actor_mask_patch",
         False,
     )

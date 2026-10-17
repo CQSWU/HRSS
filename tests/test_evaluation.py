@@ -13,24 +13,24 @@ from planning.aoreplan import AORePlanWrapper
 
 
 def test_public_names_are_explicit_and_retired_names_are_rejected():
-    assert runner.SUPPORTED_ALGORITHMS == ("AORePlan", "ARPE", "SRSLM")
+    assert runner.SUPPORTED_ALGORITHMS == ("AORePlan", "ARPE", "HRSS")
     assert set(runner.ALGORITHM_ALIASES.values()) == set(runner.SUPPORTED_ALGORITHMS)
     for name in (
         "DCC",
         "DHC",
         "Follower",
         "NoReweight",
-        "SRSLM-NoWaitDetect",
-        "SRSLM-WaitDetectOnly",
+        "HRSS-NoWaitDetect",
+        "HRSS-WaitDetectOnly",
         "v8b",
         "RePlan",
         "EPOM-L",
         "EPOM-Lifelong-FT",
         "Direct",
-        "SRSLM-NoRule",
-        "SRSLM-OnlyRule",
-        "SRSLM-NoWait",
-        "SRSLM-OnlyWait",
+        "HRSS-NoRule",
+        "HRSS-OnlyRule",
+        "HRSS-NoWait",
+        "HRSS-OnlyWait",
         "AORePlan-SoftNoCheck",
     ):
         with pytest.raises(Exception):
@@ -46,10 +46,10 @@ def test_public_cli_defaults_to_aoreplan_only():
     assert args.map_list is None
     assert args.map_file is None
     assert runner.parse_algorithms("all") == ["AORePlan"]
-    assert runner.parse_algorithms("AORePlan,ARPE,SRSLM") == [
+    assert runner.parse_algorithms("AORePlan,ARPE,HRSS") == [
         "AORePlan",
         "ARPE",
-        "SRSLM",
+        "HRSS",
     ]
 
 
@@ -233,7 +233,7 @@ def test_saved_metadata_keeps_protocol_without_weight_or_host_reports(monkeypatc
         [
             "evaluate.py",
             "--algorithms",
-            "SRSLM",
+            "HRSS",
             "--agents",
             "4",
             "--seeds",
@@ -251,7 +251,7 @@ def test_saved_metadata_keeps_protocol_without_weight_or_host_reports(monkeypatc
         runner, "save_results", lambda _rows, meta, *_a: captured.update(meta)
     )
     runner.main()
-    assert captured["algorithms"] == ["SRSLM"]
+    assert captured["algorithms"] == ["HRSS"]
     assert captured["agent_counts"] == [4]
     assert captured["seeds"] == [42]
     assert captured["max_steps"] == 16

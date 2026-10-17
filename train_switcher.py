@@ -18,7 +18,7 @@ from pomapf_env.switcher import SwitcherEnv
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-ENV_NAME = "POMAPF-SRSLM-v0"
+ENV_NAME = "POMAPF-HRSS-v0"
 
 
 def create_switcher_env(

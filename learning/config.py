@@ -222,7 +222,7 @@ class Environment(BaseModel, extra=Extra.forbid):
     name: Literal[
         "POMAPF-v0",
         "POMAPF-EPOM-ST-v0",
-        "POMAPF-SRSLM-v0",
+        "POMAPF-HRSS-v0",
     ] = "POMAPF-v0"
 
     tau_rho: float = Field(0.1, gt=0.0, le=1.0)

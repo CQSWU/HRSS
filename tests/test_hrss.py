@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from agents import switcher as switcher_module
-from agents.srslm import SRSLM, SRSLMConfig
+from agents.hrss import HRSS, HRSSConfig
 from agents.switcher import Switcher, SwitcherConfig
 from agents.controller import SWITCHER_FIELD_SHAPES
 
@@ -55,13 +55,13 @@ class _FakePlanner:
 
 
 def _config():
-    return SRSLMConfig(
+    return HRSSConfig(
         switcher=SwitcherConfig(path_to_weights="unused"),
     )
 
 
-def test_srslm_loads_the_arpe_paths_saved_with_switcher():
-    algorithm = SRSLM(
+def test_hrss_loads_the_arpe_paths_saved_with_switcher():
+    algorithm = HRSS(
         _config(),
         candidate_factory=_FakeCandidate,
         switcher_factory=_FakeSwitcher,
@@ -72,9 +72,9 @@ def test_srslm_loads_the_arpe_paths_saved_with_switcher():
     assert algorithm.candidate.device == torch.device("cpu")
 
 
-def test_srslm_rejects_a_switcher_without_candidate_paths():
+def test_hrss_rejects_a_switcher_without_candidate_paths():
     with pytest.raises(RuntimeError, match="does not contain"):
-        SRSLM(
+        HRSS(
             _config(),
             candidate_factory=_FakeCandidate,
             switcher_factory=_MissingCandidateSwitcher,
@@ -82,9 +82,9 @@ def test_srslm_rejects_a_switcher_without_candidate_paths():
         )
 
 
-def test_srslm_uses_explicit_arpe_paths_without_a_configuration_roundtrip():
+def test_hrss_uses_explicit_arpe_paths_without_a_configuration_roundtrip():
     artifact = object()
-    algorithm = SRSLM(
+    algorithm = HRSS(
         _config(),
         candidate=artifact,
         candidate_factory=_FakeCandidate,
@@ -143,7 +143,7 @@ def test_switcher_uses_sampled_actor_actions_and_preserves_reset_seed(monkeypatc
 
 
 @pytest.mark.parametrize("allowed", [(False, True, False), (False, False, False)])
-def test_srslm_only_sends_nonwait_rows_to_switcher(allowed):
+def test_hrss_only_sends_nonwait_rows_to_switcher(allowed):
     features = {"obs": np.arange(3, dtype=np.float32)[:, None]}
     prepared = SimpleNamespace(switch_allowed_mask=allowed, switcher_state=features)
     selected_batches = []
@@ -157,7 +157,7 @@ def test_srslm_only_sends_nonwait_rows_to_switcher(allowed):
         resolved_branches.append(tuple(branches))
         return (1, 4, 3)
 
-    algorithm = SRSLM.__new__(SRSLM)
+    algorithm = HRSS.__new__(HRSS)
     algorithm.switcher = SimpleNamespace(choose=choose)
     algorithm.controller = SimpleNamespace(
         prepare_actions=lambda *_args: prepared,

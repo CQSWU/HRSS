@@ -1,7 +1,7 @@
 [project]
 name = "arpe-pomapf"
 version = "0.2.0"
-description = "AORePlan, ARPE and SRSLM for lifelong partially observable MAPF"
+description = "AORePlan, ARPE and HRSS for lifelong partially observable MAPF"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

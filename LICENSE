@@ -25,7 +25,7 @@ Scope
 -----
 
 The MIT License above applies to the source code in this repository, including
-RePlan, AORePlan, Direct, ARPE, Switcher, SRSLM, environment
+RePlan, AORePlan, Direct, ARPE, Switcher, HRSS, environment
 adapters, training and evaluation tools, and the project-trained model
 checkpoints in the reproducibility release.
 

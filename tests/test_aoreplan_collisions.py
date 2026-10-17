@@ -6,7 +6,7 @@ import pytest
 from pogema import GridConfig, pogema_v0
 
 from agents.aoreplan import AORePlan, AORePlanConfig
-from agents.srslm import SRSLM
+from agents.hrss import HRSS
 from agents.controller import SwitcherController
 from planning.aoreplan import AORePlanWrapper
 from planning.branch import AORePlanBranch
@@ -138,10 +138,10 @@ class Candidate:
 
 
 @pytest.mark.parametrize("collision", ["block_both", "soft"])
-def test_srslm_default_static_collision_uses_wait_bypass_under_both_rules(collision):
+def test_hrss_default_static_collision_uses_wait_bypass_under_both_rules(collision):
     candidate = Candidate()
     planner = AORePlanBranch()
-    policy = SRSLM.__new__(SRSLM)
+    policy = HRSS.__new__(HRSS)
     policy.controller = SwitcherController(candidate, planner)
     config = SimpleNamespace(collision_system=collision)
     policy.set_grid_config(config)
