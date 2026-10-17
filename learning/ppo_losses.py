@@ -37,7 +37,13 @@ def _switch_allowed_mask(mb: Any) -> torch.Tensor:
             "Switcher learner expects flattened five-way AORePlan one-hot "
             f"actions, got shape {tuple(actions.shape)}."
         )
-    return torch.argmax(actions, dim=-1).ne(0)
+    candidate_actions = mb.normalized_obs["caar_action"]
+    if candidate_actions.shape != actions.shape:
+        raise ValueError("Switcher candidate action tensors must have the same shape.")
+    planner_actions = torch.argmax(actions, dim=-1)
+    return planner_actions.ne(0) & planner_actions.ne(
+        torch.argmax(candidate_actions, dim=-1)
+    )
 
 
 def _call_with_degenerate_std_guard(

@@ -90,10 +90,15 @@ def _one_hot_actions(actions):
     ).float()
 
 
-def _batch(actions, advantages, actor_signal, returns, valids=None):
+def _batch(actions, advantages, actor_signal, returns, valids=None, caar_actions=None):
     count = len(actions)
     return AttrDict(
-        normalized_obs={"aoreplan_action": _one_hot_actions(actions)},
+        normalized_obs={
+            "aoreplan_action": _one_hot_actions(actions),
+            "caar_action": _one_hot_actions(
+                [0] * count if caar_actions is None else caar_actions
+            ),
+        },
         valids=(
             torch.ones(count, dtype=torch.bool)
             if valids is None
@@ -170,6 +175,63 @@ def test_wait_advantages_cannot_change_actor_gradient():
 
     assert torch.allclose(loss_a, loss_b)
     assert torch.allclose(grad_a, grad_b)
+
+
+def test_same_actions_are_excluded_from_actor_losses_and_normalization():
+    learner = _FakeLearner()
+    batch = _batch(
+        actions=[0, 1, 2, 4, 3],
+        caar_actions=[2, 4, 2, 1, 3],
+        advantages=[1000.0, 1.0, -1000.0, 3.0, 50000.0],
+        actor_signal=[9.0, 1.0, -7.0, -1.0, 20.0],
+        returns=[1.0, 2.0, 3.0, 4.0, 5.0],
+    )
+    original_valids = batch.valids
+    losses = _calculate(learner, batch)
+    gradient = torch.autograd.grad(losses[1], learner.actor_weight)[0]
+
+    reference = _FakeLearner()
+    reference_losses = _calculate(
+        reference,
+        _batch([1, 4], [1.0, 3.0], [1.0, -1.0], [2.0, 4.0]),
+    )
+    reference_gradient = torch.autograd.grad(
+        reference_losses[1], reference.actor_weight
+    )[0]
+    assert torch.equal(losses[1], reference_losses[1])
+    assert torch.equal(gradient, reference_gradient)
+    assert losses[6]["adv_mean"].item() == 2.0
+    assert torch.allclose(losses[6]["adv_std"], torch.tensor(2.0).sqrt())
+    assert losses[5].item() == 11.0
+    assert batch.valids is original_valids
+    assert batch.valids.all()
+
+
+@pytest.mark.parametrize(
+    "actions,caar_actions",
+    [([1], [1]), ([1, 2, 3], [1, 2, 3]), ([0, 1, 2], [4, 1, 3])],
+)
+def test_fewer_than_two_real_choices_keep_critic_learning(actions, caar_actions):
+    learner = _FakeLearner()
+    count = len(actions)
+    batch = _batch(
+        actions=actions,
+        caar_actions=caar_actions,
+        advantages=[123.0] * count,
+        actor_signal=[99.0] * count,
+        returns=[2.0] * count,
+    )
+    losses = _calculate(learner, batch)
+    total = sum(losses[index] for index in (1, 2, 4, 5))
+    actor_gradient, critic_gradient = torch.autograd.grad(
+        total, (learner.actor_weight, learner.critic_weight), allow_unused=True
+    )
+    assert torch.isfinite(total)
+    assert all(losses[index].item() == 0.0 for index in (1, 2, 4))
+    assert actor_gradient is None or actor_gradient.item() == 0.0
+    assert critic_gradient.item() == -4.0
+    assert losses[6]["adv_mean"].item() == 0.0
+    assert losses[6]["adv_std"].item() == 0.0
 
 
 def test_all_wait_batch_has_zero_actor_gradient_and_full_critic_gradient():
@@ -298,6 +360,7 @@ class _ActualUpstreamLossLearner:
     def __init__(self):
         self.cfg = SimpleNamespace(
             encoder_custom="epom_trace_context",
+            normalize_input=False,
             recurrence=1,
             ppo_clip_ratio=0.1,
             ppo_clip_value=0.2,
@@ -374,6 +437,71 @@ def test_guard_executes_the_actual_sample_factory_advantage_path_for_singleton()
     assert torch.isfinite(losses[2])
     assert torch.isfinite(losses[4])
     assert torch.isfinite(losses[5])
+
+
+@pytest.mark.parametrize("same_only", [False, True])
+def test_actual_sample_factory_masks_same_actions_but_keeps_all_value_targets(same_only):
+    guarded = _build_switcher_calculate_losses(_unwrap_sample_factory_loss())
+    learner = _ActualUpstreamLossLearner()
+    learner.cfg.encoder_custom = "switcher"
+    features = torch.arange(1.0, 7.0).unsqueeze(-1)
+    actions = [0, 1, 2, 4, 3, 1]
+    candidate_actions = actions if same_only else [4, 4, 2, 1, 3, 2]
+    logits = torch.stack(
+        [0.2 * features.squeeze(-1), -0.2 * features.squeeze(-1)], dim=-1
+    )
+    batch = AttrDict(
+        normalized_obs={
+            "features": features,
+            "aoreplan_action": _one_hot_actions(actions),
+            "caar_action": _one_hot_actions(candidate_actions),
+        },
+        valids=torch.tensor([True, True, True, True, True, False]),
+        rnn_states=torch.zeros(6, 1),
+        actions=torch.zeros(6, dtype=torch.long),
+        log_prob_actions=torch.log_softmax(logits, dim=-1)[:, 0],
+        advantages=torch.tensor([1000.0, 1.0, -1000.0, 3.0, 50000.0, -90000.0]),
+        returns=torch.arange(1.0, 7.0),
+        values=torch.zeros(6),
+        action_logits=logits,
+    )
+    original_valids = batch.valids
+    losses = guarded(learner, batch, 1)
+    expected_value_loss = learner._value_loss(
+        0.1 * features.squeeze(-1), batch["values"], batch.returns,
+        learner.cfg.ppo_clip_value, original_valids, 1,
+    )
+    assert torch.allclose(losses[5], expected_value_loss)
+    assert batch.valids is original_valids
+    if same_only:
+        assert all(losses[index].item() == 0.0 for index in (1, 2, 4))
+    else:
+        assert losses[6]["adv_mean"].item() == 2.0
+        assert torch.allclose(losses[6]["adv_std"], torch.tensor(2.0).sqrt())
+        keep = torch.tensor([1, 3])
+        active = AttrDict({
+            key: ({k: v[keep] for k, v in value.items()}
+                  if key == "normalized_obs" else value[keep])
+            for key, value in batch.items()
+        })
+        reference = guarded(learner, active, 0)
+        for index in (1, 2, 3, 4):
+            assert torch.allclose(losses[index], reference[index])
+
+    policy_gradient = torch.autograd.grad(
+        sum(losses[index] for index in (1, 2, 4)),
+        learner.actor_critic.actor_weight,
+        retain_graph=True,
+        allow_unused=True,
+    )[0]
+    critic_gradient = torch.autograd.grad(
+        losses[5], learner.actor_critic.critic_weight
+    )[0]
+    assert torch.isfinite(critic_gradient) and critic_gradient.item() != 0.0
+    if same_only:
+        assert policy_gradient is None or policy_gradient.item() == 0.0
+    else:
+        assert torch.isfinite(policy_gradient) and policy_gradient.item() != 0.0
 
 
 @pytest.mark.parametrize("encoder_custom", ["switcher", "epom_trace_context"])
