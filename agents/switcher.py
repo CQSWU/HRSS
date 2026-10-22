@@ -27,15 +27,12 @@ from train_arpe import register_custom_components, validate_config
 
 
 class SwitcherConfig(AlgoBase, extra=Extra.forbid):
-    # 仅配置权重目录、设备和随机种子，不改变分支选择规则。
     name: Literal["Switcher"] = "Switcher"
     path_to_weights: str = "weights/HRSS-Switcher-Final-1B"
 
 
 class Switcher:
     def __init__(self, cfg: SwitcherConfig):
-        # 输入：Switcher 权重目录、设备和种子。
-        # 输出：无返回值；恢复前馈网络及关联的 ARPE 路径，并冻结全部参数用于推理。
         self.cfg = cfg
         path = Path(cfg.path_to_weights)
         register_custom_components()
@@ -86,7 +83,6 @@ class Switcher:
 
     @staticmethod
     def _resolve_checkpoint(checkpoint_dir) -> Path:
-        # 输入：检查点目录。输出：按文件名排序后的最新 checkpoint 路径；没有时才用 best。
         directory = Path(checkpoint_dir)
         candidates = sorted(directory.glob("checkpoint_*")) or sorted(
             directory.glob("best_*.pth")
@@ -98,12 +94,9 @@ class Switcher:
         return path
 
     def after_reset(self) -> None:
-        # 输入：无。输出：无返回值；重置分支采样种子。Switcher 自身没有跨步循环记忆。
         torch.manual_seed(int(self.cfg.seed or 0))
 
     def choose(self, state: Mapping[str, np.ndarray]) -> np.ndarray:
-        # 输入：仅包含 AORePlan 非等待行的网络输入字典，每个字段的第一维都是 N。
-        # 输出：N 个采样分支编号，0 为 ARPE、1 为 AORePlan，不是五方向动作编号。
         arrays = {}
         count = None
         for key, trailing_shape in SWITCHER_FIELD_SHAPES.items():
@@ -137,7 +130,6 @@ class Switcher:
             raise ValueError("Switcher received an empty batch.")
         if not np.all(arrays["aoreplan_action"][:, 0] == 0.0):
             raise ValueError("Only non-wait AORePlan states may enter Switcher.")
-        # 前馈 Switcher 没有 GRU；此空状态张量仅满足 Sample Factory 的统一调用接口。
         rnn_states = torch.zeros(
             (count, self.rnn_state_size),
             dtype=torch.float32,
