@@ -92,7 +92,7 @@ def test_network_restores_independent_trace_critic_and_605638_parameters(full_mo
     assert sum(p.numel() for p in model.trace_multiplier_head.parameters()) == 1_285
     assert sum(p.numel() for p in model.trace_value_head.parameters()) == 257
     assert sum(p.numel() for p in model.parameters() if p.requires_grad) == 605_638
-    assert model.head_extra_size == 89
+    assert model.head_extra_size == 64
     for key, expected in (
         ("paper_entropy_gate_version", 0),
         ("independent_critic_version", 1),
@@ -257,7 +257,7 @@ def test_actor_and_critic_have_independent_parameters(full_model):
     assert int(model.allaction_residual_version) == 2
 
 
-def test_packed_rollout_keeps_critic_and_tie_metadata_and_backpropagates(full_model):
+def test_packed_rollout_keeps_both_trace_features_and_backpropagates(full_model):
 
     model, batch, cfg = full_model
     model.zero_grad(set_to_none=True)
@@ -272,16 +272,16 @@ def test_packed_rollout_keeps_critic_and_tie_metadata_and_backpropagates(full_mo
     packed_core, new_states = model.forward_core(packed_head, states)
 
     assert isinstance(packed_core, PackedSequence)
-    assert packed_core.data.shape == (6, 512 + 89)
+    assert packed_core.data.shape == (6, 512 + 64)
     assert new_states.shape == states.shape
     for name in ("batch_sizes", "sorted_indices", "unsorted_indices"):
         torch.testing.assert_close(
             getattr(packed_core, name), getattr(packed_head, name)
         )
-    torch.testing.assert_close(packed_core.data[:, -89:], packed_head.data[:, -89:])
+    torch.testing.assert_close(packed_core.data[:, -64:], packed_head.data[:, -64:])
     with torch.no_grad():
         reference_input = model._packed_like(
-            packed_head, packed_head.data[:, :-89].detach()
+            packed_head, packed_head.data[:, :-64].detach()
         )
         reference_core, reference_states = model.core(reference_input, states)
     torch.testing.assert_close(packed_core.data[:, :512], reference_core.data)
@@ -326,7 +326,26 @@ def test_core_preserves_hidden_row_stride(full_model):
     with torch.no_grad():
         head = model.forward_head(observations)
         core, _ = model.forward_core(head, torch.zeros(2, get_rnn_size(cfg)))
-    hidden, *_ = model._split_core(core[:, :-10])
+    hidden, actor_trace, critic_trace = model._split_core(core)
     assert hidden.shape == (2, 512)
-    assert hidden.stride() == (601, 1)
-    torch.testing.assert_close(core[:, 512:517], core[:, 522:527], rtol=0, atol=0)
+    assert hidden.stride() == (576, 1)
+    torch.testing.assert_close(actor_trace, head[:, -64:-32], rtol=0, atol=0)
+    torch.testing.assert_close(critic_trace, head[:, -32:], rtol=0, atol=0)
+
+
+def test_forward_does_not_require_retired_direct_metadata(full_model):
+    model, batch, cfg = full_model
+    observations = TensorDict({key: batch[key][:2] for key in ("obs", "xy", "target_xy", "tau")})
+    states = torch.zeros(2, get_rnn_size(cfg))
+    with torch.no_grad():
+        head = model.forward_head(observations)
+        core, _ = model.forward_core(head, states)
+        expected = model.forward_tail(core, values_only=False, sample_actions=False)
+        observations["tau_free_mask"] = torch.randn(2, 1, 11, 11)
+        observations["bonus_tie_ranks"] = torch.randn(2, 2, 5)
+        augmented_head = model.forward_head(observations)
+        augmented_core, _ = model.forward_core(augmented_head, states)
+        actual = model.forward_tail(augmented_core, values_only=False, sample_actions=False)
+    torch.testing.assert_close(head, augmented_head, rtol=0, atol=0)
+    for key in ("action_logits", "values"):
+        torch.testing.assert_close(actual[key], expected[key], rtol=0, atol=0)

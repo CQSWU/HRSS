@@ -88,10 +88,6 @@ class SharedTrace:
         local, free_mask = self._local_tau_and_free_mask(x, y, int(radius))
         return self._relative_pressure(local, free_mask)
 
-    def extract_local_free_mask(self, x, y, radius):
-        _, free_mask = self._local_tau_and_free_mask(x, y, int(radius))
-        return free_mask.astype(np.float32, copy=False)
-
     def add_tau_observation(
         self,
         obs_batch,

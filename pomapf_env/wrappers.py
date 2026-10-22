@@ -324,12 +324,6 @@ class TauObservationWrapper(gym.Wrapper):
             shape=(1, tau_size, tau_size),
             dtype=np.float32,
         )
-        spaces["tau_free_mask"] = Box(
-            low=0.0,
-            high=1.0,
-            shape=(1, tau_size, tau_size),
-            dtype=np.float32,
-        )
         self.observation_space = gym.spaces.Dict(spaces)
         self.num_agents = self.env.num_agents
         self.is_multiagent = self.env.is_multiagent
@@ -362,15 +356,6 @@ class TauObservationWrapper(gym.Wrapper):
                 observations,
                 positions=true_positions,
                 radius=self.tau_radius,
-            )
-        for observation, (x, y) in zip(observations, true_positions):
-            free_mask = self.aco.extract_local_free_mask(
-                int(x),
-                int(y),
-                self.tau_radius,
-            )
-            observation["tau_free_mask"] = free_mask[np.newaxis, ...].astype(
-                np.float32, copy=False
             )
 
     def _configure_trace(self, clear):

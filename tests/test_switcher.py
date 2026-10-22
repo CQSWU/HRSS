@@ -128,3 +128,26 @@ def test_pending_decision_must_be_resolved_before_next_proposal():
     with pytest.raises(RuntimeError, match="previous switch decision"):
         controller.prepare_actions(observations(1))
     assert controller.resolve_actions([AO_BRANCH]) == (4,)
+
+
+@pytest.mark.parametrize("source", ["ARPE", "AORePlan"])
+@pytest.mark.parametrize("action", [None, -1, 5, 1.5, float("nan"), float("inf")])
+def test_both_candidates_reject_invalid_primitive_actions(source, action):
+    arpe = FakeARPE([action if source == "ARPE" else 1])
+    planner = FakeAORePlan([action if source == "AORePlan" else 4])
+    controller = SwitcherController(arpe, planner)
+    with pytest.raises(RuntimeError, match=source):
+        controller.prepare_actions(observations(1))
+    assert controller._pending is None
+    assert planner.commits == ([(False,)] if source == "AORePlan" else [])
+
+
+@pytest.mark.parametrize("mask", [(), (False,)])
+def test_incomplete_planner_batch_is_cancelled(mask):
+    planner = FakeAORePlan([4])
+    planner.propose = lambda _observations: AORePlanStep(actions=(4,), planned_mask=mask)
+    controller = SwitcherController(FakeARPE([1]), planner)
+    with pytest.raises(RuntimeError, match="AORePlan"):
+        controller.prepare_actions(observations(1))
+    assert planner.commits == [(False,)]
+    assert controller._pending is None

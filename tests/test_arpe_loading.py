@@ -10,7 +10,6 @@ import torch
 import agents.arpe as arpe_module
 from agents.arpe import ARPE, ARPEWeights
 from learning.arpe_actor_critic import InferenceCorrection
-from pomapf_env.tie_breaking import draw_tie_ranks
 
 
 @pytest.fixture
@@ -193,7 +192,6 @@ def test_after_reset_clears_memories_and_replays_seeded_randomness(arpe_runtime)
     adapter.aco.configure(3, 3)
     adapter.after_reset()
     expected_numpy = adapter._numpy_rng.random(8)
-    expected_ranks = draw_tie_ranks(adapter._bonus_rng, 4)
     expected_torch = torch.rand(8)
     adapter.rnn_states = torch.ones(2, 3)
     adapter.aco.tau.fill(2)
@@ -205,7 +203,6 @@ def test_after_reset_clears_memories_and_replays_seeded_randomness(arpe_runtime)
     assert adapter.aco.prev_positions is None
     assert adapter.grid_memory.memories is None
     np.testing.assert_array_equal(adapter._numpy_rng.random(8), expected_numpy)
-    np.testing.assert_array_equal(draw_tie_ranks(adapter._bonus_rng, 4), expected_ranks)
     torch.testing.assert_close(torch.rand(8), expected_torch, rtol=0, atol=0)
 
 
@@ -218,7 +215,7 @@ def test_after_step_clears_memories_only_when_all_agents_are_done(arpe_runtime):
     states = adapter.rnn_states
     memories = adapter.grid_memory.memories
     positions = adapter.aco.prev_positions
-    numpy_rng, bonus_generator = adapter._numpy_rng, adapter._bonus_rng
+    numpy_rng = adapter._numpy_rng
     adapter.after_step([True, False])
     assert adapter.rnn_states is states
     assert adapter.grid_memory.memories is memories
@@ -230,4 +227,3 @@ def test_after_step_clears_memories_only_when_all_agents_are_done(arpe_runtime):
     assert adapter.aco.prev_positions is None
     assert not adapter.aco.tau.any()
     assert adapter._numpy_rng is numpy_rng
-    assert adapter._bonus_rng is bonus_generator

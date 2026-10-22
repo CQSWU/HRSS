@@ -12,7 +12,7 @@ returns wait, ARPE is used directly; otherwise, the Switcher selects a branch.
 
 ## Install
 
-Linux, Python 3.10 or 3.11, and a C++ compiler:
+Python 3.10 or 3.11 on Windows or Linux. Linux also needs a C++ compiler.
 
 ```bash
 git clone https://github.com/CQSWU/HRSS.git

@@ -158,7 +158,6 @@ def test_final_weight_loading_and_small_cpu_forward_when_available():
     from agents.hrss import HRSS, HRSSConfig
     from agents.switcher import SwitcherConfig
     from agents.controller import build_switcher_state
-    from pomapf_env.tie_breaking import TIE_KEY
     from sample_factory.algo.utils.tensor_dict import TensorDict
     from sample_factory.model.model_utils import get_rnn_size
 
@@ -181,9 +180,7 @@ def test_final_weight_loading_and_small_cpu_forward_when_available():
         xy=torch.zeros(2, 2),
         target_xy=torch.ones(2, 2),
         tau=torch.zeros(2, 1, 11, 11),
-        tau_free_mask=torch.ones(2, 1, 11, 11),
     )
-    batch[TIE_KEY] = torch.arange(5).float().repeat(2, 2, 1)
     captured = {}
     hooks = [
         model.action_parameterization.register_forward_hook(

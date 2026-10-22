@@ -95,10 +95,7 @@ def _assert_first_frame(trace, observations):
     for observation, (row, col) in zip(observations, positions):
         expected_crop = reference.extract_local_tau(row, col, 5)
         np.testing.assert_array_equal(observation["tau"][0], expected_crop)
-        np.testing.assert_array_equal(
-            observation["tau_free_mask"][0],
-            reference.extract_local_free_mask(row, col, 5),
-        )
+        assert set(observation) == {"obs", "xy", "target_xy", "tau"}
 
 
 @pytest.mark.parametrize("collision_system", ["block_both", "soft"])

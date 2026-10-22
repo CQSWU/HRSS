@@ -9,7 +9,6 @@ import gymnasium as gym
 import numpy as np
 import torch
 from pydantic import Extra
-from sample_factory.algo.learning.learner import Learner
 from sample_factory.algo.utils.rl_utils import prepare_and_normalize_obs
 from sample_factory.algo.utils.tensor_dict import TensorDict
 from sample_factory.model.actor_critic import create_actor_critic
@@ -23,16 +22,20 @@ from agents.controller import (
 )
 from agents.arpe import ARPEWeights
 from agents.common import AlgoBase, resolve_device
+from learning.config import checkpoint_experiment_config
 from train_arpe import register_custom_components, validate_config
 
 
 class SwitcherConfig(AlgoBase, extra=Extra.forbid):
+    # 仅配置权重目录、设备和随机种子，不改变分支选择规则。
     name: Literal["Switcher"] = "Switcher"
     path_to_weights: str = "weights/HRSS-Switcher-Final-1B"
 
 
 class Switcher:
     def __init__(self, cfg: SwitcherConfig):
+        # 输入：Switcher 权重目录、设备和种子。
+        # 输出：无返回值；恢复前馈网络及关联的 ARPE 路径，并冻结全部参数用于推理。
         self.cfg = cfg
         path = Path(cfg.path_to_weights)
         register_custom_components()
@@ -41,14 +44,10 @@ class Switcher:
         declaration = full_config.pop("candidate_policy", None)
         if declaration is not None and not isinstance(declaration, dict):
             raise RuntimeError("Switcher candidate_policy declaration is malformed.")
-        candidate_artifact = None
-        if declaration is not None:
-            project_root = Path(__file__).resolve().parents[1]
-            candidate_artifact = ARPEWeights.from_mapping(
-                declaration,
-                project_root,
-            )
-        from learning.config import checkpoint_experiment_config
+        self.candidate_artifact = (
+            ARPEWeights.from_mapping(declaration, Path(__file__).resolve().parents[1])
+            if declaration is not None else None
+        )
 
         _, flat_config = validate_config(checkpoint_experiment_config(full_config))
         if flat_config.encoder_custom != "switcher":
@@ -79,20 +78,19 @@ class Switcher:
         )
         actor.load_state_dict(checkpoint["model"])
         actor.eval()
-        for parameter in actor.parameters():
-            parameter.requires_grad_(False)
+        actor.requires_grad_(False)
 
         self.ppo = actor
         self.rnn_state_size = get_rnn_size(flat_config)
-        self.candidate_artifact = candidate_artifact
         self.after_reset()
 
     @staticmethod
     def _resolve_checkpoint(checkpoint_dir) -> Path:
+        # 输入：检查点目录。输出：按文件名排序后的最新 checkpoint 路径；没有时才用 best。
         directory = Path(checkpoint_dir)
-        candidates = Learner.get_checkpoints(str(directory))
-        if not candidates:
-            candidates = sorted(directory.glob("best_*.pth"))
+        candidates = sorted(directory.glob("checkpoint_*")) or sorted(
+            directory.glob("best_*.pth")
+        )
         if not candidates:
             raise FileNotFoundError(f"No Switcher checkpoint in {directory}.")
         path = Path(candidates[-1]).resolve()
@@ -100,9 +98,12 @@ class Switcher:
         return path
 
     def after_reset(self) -> None:
+        # 输入：无。输出：无返回值；重置分支采样种子。Switcher 自身没有跨步循环记忆。
         torch.manual_seed(int(self.cfg.seed or 0))
 
     def choose(self, state: Mapping[str, np.ndarray]) -> np.ndarray:
+        # 输入：仅包含 AORePlan 非等待行的网络输入字典，每个字段的第一维都是 N。
+        # 输出：N 个采样分支编号，0 为 ARPE、1 为 AORePlan，不是五方向动作编号。
         arrays = {}
         count = None
         for key, trailing_shape in SWITCHER_FIELD_SHAPES.items():
@@ -136,6 +137,7 @@ class Switcher:
             raise ValueError("Switcher received an empty batch.")
         if not np.all(arrays["aoreplan_action"][:, 0] == 0.0):
             raise ValueError("Only non-wait AORePlan states may enter Switcher.")
+        # 前馈 Switcher 没有 GRU；此空状态张量仅满足 Sample Factory 的统一调用接口。
         rnn_states = torch.zeros(
             (count, self.rnn_state_size),
             dtype=torch.float32,
@@ -144,19 +146,13 @@ class Switcher:
         with torch.no_grad():
             observations = TensorDict(
                 {
-                    key: torch.as_tensor(
-                        value,
-                        dtype=torch.float32,
-                        device=self.device,
-                    )
+                    key: torch.as_tensor(value, dtype=torch.float32, device=self.device)
                     for key, value in arrays.items()
                 }
             )
             observations = prepare_and_normalize_obs(self.ppo, observations)
             outputs = self.ppo(observations, rnn_states)
-            actions = outputs["actions"]
-            result = actions.detach().cpu().numpy().astype(np.int64)
-        return result
+            return outputs["actions"].cpu().numpy().astype(np.int64)
 
 
 __all__ = [
