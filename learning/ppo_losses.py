@@ -31,6 +31,7 @@ def _invalid_count(valids: torch.Tensor) -> int:
 
 
 def _switch_allowed_mask(mb: Any) -> torch.Tensor:
+    # Train branch selection only when candidates differ and the planner does not wait.
     actions = mb.normalized_obs["aoreplan_action"]
     if actions.ndim != 2 or actions.shape[-1] != 5:
         raise ValueError(
@@ -142,6 +143,7 @@ def _build_switcher_calculate_losses(original: Callable) -> Callable:
         ) = losses
 
         values = loss_summaries["values"].squeeze(-1)
+        # Keep all valid timesteps for value learning, including rule-controlled ones.
         value_loss = self._value_loss(
             values,
             mb["values"],
@@ -152,6 +154,7 @@ def _build_switcher_calculate_losses(original: Callable) -> Callable:
         )
 
         if actor_sample_count < 2:
+            # Skip actor losses when too few real choices remain in the minibatch.
             zero = loss_summaries["values"].sum() * 0.0
             policy_loss = zero
             exploration_loss = zero

@@ -15,6 +15,7 @@ ENTROPY_EPS = 1e-10
 class InferenceCorrection:
     @staticmethod
     def gate(entropy):
+        # Leave very confident base-policy decisions unchanged at inference.
         return (entropy > 0.01).unsqueeze(-1)
 
     def apply(self, base_logits, residual, entropy):
@@ -40,6 +41,7 @@ class TraceEncoder(nn.Module):
         )
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # Encode each 1x11x11 trace crop as a 32-dimensional feature vector.
         if tuple(inputs.shape[1:]) != (1, self.TRACE_SIZE, self.TRACE_SIZE):
             raise ValueError(
                 f"Paper Trace Encoder requires [B,1,11,11], got {tuple(inputs.shape)}."
@@ -52,6 +54,7 @@ class _FrozenEPOMActorCritic(ActorCriticSharedWeights):
     TRAINABLE_PREFIXES = ()
 
     def _load_and_freeze_base(self, settings):
+        # Load EPOM weights and train only the added trace modules.
         directory = Path(settings["epom_base_weights_path"]).expanduser()
         if not directory.is_absolute():
             directory = Path(__file__).resolve().parents[1] / directory
@@ -97,6 +100,7 @@ class _FrozenEPOMActorCritic(ActorCriticSharedWeights):
                 parameter.requires_grad_(False)
 
     def train(self, mode=True):
+        # Keep frozen base modules in evaluation mode during trace training.
         super().train(mode)
         for module in getattr(self, "_frozen_base_modules", ()):
             module.eval()
@@ -167,6 +171,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
         self.actor_trace_encoder = TraceEncoder(cfg)
         if self.core_out_size != 512:
             raise ValueError("ARPE requires the 512D EPOM hidden state.")
+        # Actor and critic use separate trace encoders and fusion heads.
         self.critic_trace_encoder = TraceEncoder(cfg)
         self.critic_fusion_head = nn.Sequential(nn.Linear(549, 256), nn.ReLU())
         self.trace_value_head = nn.Linear(256, 1)
@@ -181,6 +186,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
             self.critic_fusion_head,
         ):
             module.apply(self.initialize_weights)
+        # Start with zero correction so initial actions follow the base policy.
         nn.init.zeros_(self.trace_multiplier_head[-1].weight)
         nn.init.zeros_(self.trace_multiplier_head[-1].bias)
 
@@ -204,6 +210,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
         self.head_extra_size = 2 * TraceEncoder.OUTPUT_SIZE
 
     def forward_head(self, normalized_obs_dict):
+        # Encode the base observation without gradients and train both trace encoders.
         with torch.no_grad():
             base_context = self.encoder(normalized_obs_dict)
         tau = normalized_obs_dict["tau"].float()
@@ -214,6 +221,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
         )
 
     def forward_core(self, head_output, rnn_states):
+        # Update the frozen base policy's memory while preserving trace gradients.
         packed = isinstance(head_output, PackedSequence)
         data = head_output.data if packed else head_output
         context, extras = data[:, :-self.head_extra_size], data[:, -self.head_extra_size:]
@@ -239,6 +247,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
         critic_trace: torch.Tensor,
         base_logits: torch.Tensor,
     ) -> torch.Tensor:
+        # Predict a standalone value; do not add the frozen base critic's value.
         features = self.compose_paper_entropy_fusion_input(
             critic_trace, hidden, base_logits
         )
@@ -250,6 +259,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
         frozen_hidden: torch.Tensor,
         base_logits: torch.Tensor,
     ) -> torch.Tensor:
+        # Fuse trace features (32), frozen hidden state (512) and base logits (5).
         batch = trace_feature.shape[0]
         expected = ((batch, 32), (batch, 512), (batch, 5))
         actual = (
@@ -282,6 +292,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
                 raw_correction,
                 self._base_entropy(base_logits),
             )
+        # Training adds the raw correction; inference uses the gate above.
         return base_logits + raw_correction
 
     def forward_tail(self, core_output, values_only: bool, sample_actions: bool):
@@ -301,6 +312,7 @@ class ARPEActorCritic(_FrozenEPOMActorCritic):
             actor_trace, hidden, base_logits
         )
         actor_input = self.trace_fusion_head(fusion_input)
+        # Predict one additive logit correction for each of the five actions.
         raw_correction = self.trace_multiplier_head(actor_input)
         final_logits = self._apply_configured_correction_rule(
             base_logits,

@@ -56,10 +56,12 @@ class HRSS:
         self.controller.after_step(dones)
 
     def after_reset(self):
+        # Reset both branches and the Switcher's sampling state.
         self.controller.after_reset()
         self.switcher.after_reset()
 
     def act(self, observations, rewards=None, dones=None, infos=None):
+        # Use ARPE for planner waits; sample a branch for the remaining agents.
         prepared = self.controller.prepare_actions(observations, rewards, dones, infos)
         switch_allowed = np.asarray(prepared.switch_allowed_mask, dtype=bool)
         branches = np.empty(0, dtype=np.int64)

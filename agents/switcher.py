@@ -83,6 +83,7 @@ class Switcher:
 
     @staticmethod
     def _resolve_checkpoint(checkpoint_dir) -> Path:
+        # Prefer the latest regular checkpoint, falling back to a best checkpoint.
         directory = Path(checkpoint_dir)
         candidates = sorted(directory.glob("checkpoint_*")) or sorted(
             directory.glob("best_*.pth")
@@ -97,6 +98,7 @@ class Switcher:
         torch.manual_seed(int(self.cfg.seed or 0))
 
     def choose(self, state: Mapping[str, np.ndarray]) -> np.ndarray:
+        # Return sampled branch IDs: 0 for ARPE and 1 for AORePlan.
         arrays = {}
         count = None
         for key, trailing_shape in SWITCHER_FIELD_SHAPES.items():
@@ -130,6 +132,7 @@ class Switcher:
             raise ValueError("Switcher received an empty batch.")
         if not np.all(arrays["aoreplan_action"][:, 0] == 0.0):
             raise ValueError("Only non-wait AORePlan states may enter Switcher.")
+        # Sample Factory expects this tensor even for a feed-forward policy.
         rnn_states = torch.zeros(
             (count, self.rnn_state_size),
             dtype=torch.float32,

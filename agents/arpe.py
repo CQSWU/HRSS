@@ -40,6 +40,7 @@ class ARPEWeights:
         mapping: Mapping[str, object],
         project_root: Path,
     ) -> "ARPEWeights":
+        # Resolve checkpoint paths relative to the project directory.
         root = Path(project_root).resolve()
         return cls(
             project_root=root,
@@ -50,6 +51,7 @@ class ARPEWeights:
         )
 
     def as_dict(self) -> dict[str, object]:
+        # Keep paths inside the project relative for portable configurations.
         result = {}
         for field in self._path_fields():
             path = getattr(self, field)
@@ -103,6 +105,7 @@ class ARPE:
         self.ppo.load_state_dict(self._load_checkpoint()["model"], strict=True)
         self.ppo.eval()
         self.ppo.requires_grad_(False)
+        # Apply the inference entropy gate to the learned correction.
         self.ppo.inference_correction = InferenceCorrection()
 
         env_cfg = Environment(**self.cfg.full_config["environment"])
@@ -134,6 +137,7 @@ class ARPE:
         self.aco.configure_from_grid_config(grid_config, clear=True)
 
     def set_env(self, env) -> None:
+        # Initialize the shared trace from the current environment's obstacle grid.
         self.env = env
         grid_obstacles = getattr(getattr(env, "grid", None), "obstacles", None)
         if grid_obstacles is not None:
@@ -147,11 +151,13 @@ class ARPE:
         self._numpy_rng = np.random.default_rng(self.seed)
 
     def _clear_memory(self) -> None:
+        # Clear recurrent state, shared traces and accumulated map observations.
         self.rnn_states = None
         self.aco.clear()
         self.grid_memory.clear()
 
     def _global_positions(self):
+        # Shared traces use grid coordinates, not agent-relative coordinates.
         grid = getattr(self.env, "grid", None)
         positions = getattr(grid, "positions_xy", None)
         if positions is None and grid is not None and hasattr(grid, "get_agents_xy"):
@@ -163,6 +169,7 @@ class ARPE:
         return np.asarray(positions, dtype=np.int64)
 
     def act(self, observations, rewards=None, dones=None, infos=None):
+        # Build model inputs and return one sampled action per agent.
         observations = deepcopy(observations)
         num_agents = len(observations)
         self.grid_memory.update(observations)
@@ -179,6 +186,7 @@ class ARPE:
                 "Trace state is not initialised. Call set_env() after env.reset() and before act()."
             )
         positions = self._global_positions()
+        # Update traces from actual positions after the previous simulator step.
         self.aco.observe_for_inference(
             observations, positions=positions, radius=TRACE_RADIUS
         )
@@ -200,6 +208,7 @@ class ARPE:
         return np.asarray([self._numpy_rng.choice(5, p=row) for row in probabilities])
 
     def after_step(self, dones) -> None:
+        # Keep memory across lifelong goals; clear it when the episode ends.
         if all(dones):
             self._clear_memory()
 

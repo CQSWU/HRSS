@@ -85,6 +85,7 @@ class SharedTrace:
         )
 
     def extract_local_tau(self, x, y, radius):
+        # Return a local trace crop centered by its traversable-cell mean.
         local, free_mask = self._local_tau_and_free_mask(x, y, int(radius))
         return self._relative_pressure(local, free_mask)
 
@@ -157,6 +158,7 @@ class SharedTrace:
         return np.rint(np.asarray(positions, dtype=np.float32)).astype(np.int64)
 
     def _update_trace(self, positions, evaporate=True):
+        # Decay old traces and add one to each currently occupied cell.
         if evaporate:
             self.tau *= self.decay
         if self._obstacle_mask is not None:
@@ -172,6 +174,7 @@ class SharedTrace:
 
     @staticmethod
     def _relative_pressure(local, free_mask):
+        # Exclude obstacles and padding from the mean and leave their output at zero.
         free_values = local[free_mask]
         if free_values.size == 0:
             return np.zeros_like(local, dtype=np.float32)

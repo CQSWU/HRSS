@@ -52,6 +52,7 @@ def build_switcher_state(
     arpe_actions: Sequence[int],
     aoreplan_actions: Sequence[int],
 ) -> dict[str, np.ndarray]:
+    # Combine local maps, coordinates and both candidate actions for the Switcher.
     count = len(observations)
     arpe = np.asarray(arpe_actions, dtype=np.int64).reshape(-1)
     aoreplan = np.asarray(aoreplan_actions, dtype=np.int64).reshape(-1)
@@ -148,6 +149,7 @@ class SwitcherController:
         return tuple(converted)
 
     def prepare_actions(self, observations, rewards=None, dones=None, infos=None):
+        # Get both proposals without committing the planner's execution feedback yet.
         if self._pending is not None:
             raise RuntimeError("The previous switch decision was not applied.")
         raw_observations = tuple(observations)
@@ -173,12 +175,14 @@ class SwitcherController:
         self._pending = PreparedSwitcherStep(
             arpe_actions=arpe_actions,
             aoreplan_actions=aoreplan_actions,
+            # A planner wait is handled by ARPE without a Switcher decision.
             switch_allowed_mask=tuple(action != 0 for action in aoreplan_actions),
             switcher_state=switcher_state,
         )
         return self._pending
 
     def resolve_actions(self, branches: Sequence[int]) -> tuple[int, ...]:
+        # Convert branch choices into primitive actions and commit planner feedback.
         pending = self._pending
         if pending is None:
             raise RuntimeError(
@@ -203,6 +207,7 @@ class SwitcherController:
                 pending.arpe_actions, pending.aoreplan_actions, executed_ao
             )
         )
+        # Match actual actions, even when both branches proposed the same move.
         commit = [
             actual == ao for actual, ao in zip(final_actions, pending.aoreplan_actions)
         ]

@@ -4,6 +4,7 @@ import sys
 import numpy as np
 from pogema import GridConfig
 
+# Use Python on Windows and the C++ planner elsewhere.
 if sys.platform == "win32":
     from planning.planner_python import planner
 else:
@@ -22,12 +23,14 @@ _ACTION_BY_DELTA = {move: index for index, move in enumerate(_MOVES)}
 
 
 def _update_map(local_planner, observation, other_agents):
+    # Merge local obstacles and visible agents into the planner's map.
     obstacles = np.asarray(observation["obstacles"])
     origin = tuple(int(p) - size // 2 for p, size in zip(observation["xy"], obstacles.shape))
     local_planner.update_obstacles(np.argwhere(obstacles), other_agents, origin)
 
 
 def _path_action(path):
+    # Convert the first path edge to an action, or return None if unavailable.
     if path is None or path[1][0] >= INF:
         return None
     start, destination = path
@@ -46,6 +49,7 @@ class AORePlanBase:
         self.failure_cache_rnd = np.random.default_rng(cache_seed)
 
     def act(self, observations, skip_agents=None):
+        # Produce one dynamic-planner proposal per agent.
         count = len(observations)
         if skip_agents is None:
             skip = [False] * count
@@ -68,6 +72,7 @@ class AORePlanBase:
 
             cache_failed_action = True
             if local_planner.proposal_failed(position):
+                # Cache failed moves with probability 0.5 to break repeated conflicts.
                 cache_failed_action = self.failure_cache_rnd.random() < FAILURE_CACHE_PROBABILITY
             local_planner.observe_position(position, cache_failed_action)
 
@@ -78,11 +83,13 @@ class AORePlanBase:
             local_planner.plan_path(position, target)
             action = _path_action(local_planner.get_next_node(True))
             if action is None:
+                # Release failed moves when the planner cannot propose an action.
                 local_planner.release_failed_actions()
             actions.append(action)
         return actions
 
     def commit_proposals(self, executed_mask):
+        # Cancel unused proposals so they are not recorded as failed moves.
         if self.planner is None:
             raise RuntimeError("AORePlan must act before proposals can be committed.")
         if len(executed_mask) != len(self.planner):
@@ -93,6 +100,7 @@ class AORePlanBase:
 
 
 def _local_cell_is_free(observation, action):
+    # Check the destination against currently visible obstacles and agents.
     if action in (None, 0):
         return False
     try:
@@ -111,6 +119,7 @@ def _local_cell_is_free(observation, action):
 
 
 def original_random_or_stay(observation, rnd):
+    # Choose wait or a random move; random moves only avoid static obstacles.
     if rnd.random() <= 0.5:
         return 0
 
@@ -131,6 +140,7 @@ class StaticAStarCheck:
         self._planners = None
 
     def observe(self, observations):
+        # Accumulate static obstacles without adding other agents.
         count = len(observations)
         if self._planners is None:
             self._planners = [planner(self.max_steps) for _ in range(count)]
@@ -140,6 +150,7 @@ class StaticAStarCheck:
             _update_map(local_planner, observation, [])
 
     def get_action(self, index, observation):
+        # Return the first static-map action for the selected agent.
         if self._planners is None:
             raise RuntimeError("Observe the agent batch before querying static A*.")
         local_planner = self._planners[index]
@@ -169,11 +180,13 @@ class AORePlanWrapper:
             raise ValueError("AORePlan agent count changed without reset.")
 
     def _static_astar_action(self, index, observation):
+        # Turn a locally blocked static-map action into wait.
         action = self.static_astar.get_action(index, observation)
         return int(action) if _local_cell_is_free(observation, action) else 0
 
     @staticmethod
     def _returns_to_previous_position(position, action, previous):
+        # A reverse move returns to the position from the previous timestep.
         if action in (None, 0) or previous is None:
             return False
         dx, dy = _MOVES[int(action)]
@@ -203,6 +216,7 @@ class AORePlanWrapper:
                 self.last_target[index] = target
 
             previous = self.previous_position[index]
+            # Record every timestep, including waits and blocked moves.
             self.previous_position[index] = position
 
             if skip_agents is not None and bool(skip_agents[index]):
@@ -221,6 +235,7 @@ class AORePlanWrapper:
                 continue
 
             static_action = self._static_astar_action(index, observation)
+            # Replace the reverse proposal only if the static action is not reverse.
             if not self._returns_to_previous_position(position, static_action, previous):
                 actions[index] = int(static_action)
                 self.last_dynamic_override_mask[index] = True

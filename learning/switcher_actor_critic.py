@@ -48,6 +48,7 @@ class SwitcherEncoder(Encoder):
         self.encoder_out_size = int(cfg.hidden_size)
 
     def forward(self, x):
+        # Fuse local-map features with coordinates and candidate-action encodings.
         spatial = self.spatial(x["obs"].float()).flatten(1)
 
         coords = torch.cat([x["xy"], x["target_xy"]], dim=-1).float()
@@ -73,6 +74,7 @@ class SwitcherActorCritic(ActorCriticSharedWeights):
                 raise ValueError(f"Switcher expected field {key!r} with shape {shape}.")
         if cfg.use_rnn:
             raise ValueError("Switcher is intentionally feed-forward.")
+        # Actor and critic share the encoder and use separate output heads.
         super().__init__(model_factory, obs_space, action_space, cfg)
 
         probability = float(cfg.switcher_initial_ao_probability)
@@ -81,6 +83,7 @@ class SwitcherActorCritic(ActorCriticSharedWeights):
                 "switcher_initial_ao_probability must be between zero and one."
             )
         output = self.action_parameterization.distribution_linear
+        # Initialize the actor near the configured AORePlan selection probability.
         nn.init.normal_(output.weight, mean=0.0, std=1e-3)
         with torch.no_grad():
             output.bias.copy_(
@@ -94,6 +97,7 @@ class SwitcherActorCritic(ActorCriticSharedWeights):
         self.core_out_size = self.core.get_out_size()
 
     def forward_head(self, normalized_obs_dict):
+        # Carry the rule mask alongside the learned features, not through the encoder.
         encoded = self.encoder(normalized_obs_dict)
         switch_allowed = normalized_obs_dict.get("switch_allowed")
         if switch_allowed is None:
@@ -110,12 +114,14 @@ class SwitcherActorCritic(ActorCriticSharedWeights):
         policy_state = core_output[:, : self.core_out_size]
         switch_allowed = core_output[:, self.core_out_size :].squeeze(-1) > 0.5
         decoder_output = self.decoder(policy_state)
+        # The critic learns from rule-controlled steps as well as switch decisions.
         values = self.critic_linear(decoder_output).squeeze()
         result = TensorDict(values=values)
         if values_only:
             return result
 
         count = decoder_output.shape[0]
+        # Rule-controlled rows select ARPE; only eligible rows use actor logits.
         logits = decoder_output.new_full((count, NUM_BRANCHES), -1.0e9)
         logits[:, 0] = 0.0
         active_distribution = None
